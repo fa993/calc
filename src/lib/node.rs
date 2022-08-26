@@ -1,11 +1,10 @@
+use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::fmt::{self, Write};
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
+use std::sync::Arc;
 
 use crate::lib::EvalFunction;
-
 
 #[derive(Debug)]
 pub enum CalcNodeError {
@@ -43,8 +42,11 @@ impl fmt::Display for CalcFunctionData {
             }
             self.visit(&mut |fre, is_last| {
                 fre.fmt(f).expect("Couldn't display");
-                if !is_last { 
-                    self.operator.expect("No operator").fmt(f).expect("Operator couldn't be serialized");
+                if !is_last {
+                    self.operator
+                        .expect("No operator")
+                        .fmt(f)
+                        .expect("Operator couldn't be serialized");
                 }
             });
             if self.brackets {
@@ -71,7 +73,7 @@ impl CalcFunctionData {
             params: vec![],
             operator: None,
             brackets: false,
-            id: 0
+            id: 0,
         }
     }
 
@@ -100,7 +102,7 @@ pub enum CalcOperatorType {
     Comma,
     Ampersand,
     Pipe,
-    Tild
+    Tild,
 }
 
 impl CalcOperatorType {
@@ -176,24 +178,31 @@ pub enum CalcNode {
 }
 
 impl CalcNode {
-
     pub fn eval(&self, lookups: &HashMap<String, EvalFunction>) -> CalcNode {
         self.eval_internal(lookups, Arc::new(AtomicUsize::new(0)))
     }
 
-    fn eval_internal(&self, lookups: &HashMap<String, EvalFunction>, counter: Arc<AtomicUsize>) -> CalcNode {
+    fn eval_internal(
+        &self,
+        lookups: &HashMap<String, EvalFunction>,
+        counter: Arc<AtomicUsize>,
+    ) -> CalcNode {
         match self {
             CalcNode::Function(x) => {
-                let asd: Vec<CalcNode> = x.params.iter().map(|y| y.eval_internal(lookups, counter.clone())).collect();
+                let asd: Vec<CalcNode> = x
+                    .params
+                    .iter()
+                    .map(|y| y.eval_internal(lookups, counter.clone()))
+                    .collect();
                 if let Some(t) = lookups.get(x.name.as_str()) {
                     return t(asd, counter);
                 } else {
                     panic!("Unexpected")
                 }
-            },
-            CalcNode::SingleValue(x) => {CalcNode::SingleValue(*x)},
-            CalcNode::Text(x) => {CalcNode::Text(x.to_string())},
-            _ => panic!("Unexpected")
+            }
+            CalcNode::SingleValue(x) => CalcNode::SingleValue(*x),
+            CalcNode::Text(x) => CalcNode::Text(x.to_string()),
+            _ => panic!("Unexpected"),
         }
     }
 
@@ -214,53 +223,54 @@ impl CalcNode {
     fn to_verilog__(&self, sout: &mut String, seen: &mut HashSet<usize>) {
         match self {
             CalcNode::Function(x) => {
-
                 x.params.iter().for_each(|y| y.to_verilog__(sout, seen));
 
                 if !seen.insert(x.id) {
-                    return ;
+                    return;
                 }
-                
+
                 if x.params.len() == 2 {
                     write!(
-                        sout, "{}({}, {}, {});\n",
+                        sout,
+                        "{}({}, {}, {});\n",
                         x.name,
-                        format!("w_{}", x.id), 
+                        format!("w_{}", x.id),
                         if let CalcNode::Text(y) = &x.params[0] {
                             format!("{}", y)
-                        } else if let CalcNode::Function(y) = &x.params[0]{
+                        } else if let CalcNode::Function(y) = &x.params[0] {
                             format!("w_{}", y.id)
                         } else {
                             panic!("Type not allowed")
-                        }
-                        ,
+                        },
                         if let CalcNode::Text(y) = &x.params[1] {
                             format!("{}", y)
-                        } else if let CalcNode::Function(y) = &x.params[1]{
+                        } else if let CalcNode::Function(y) = &x.params[1] {
                             format!("w_{}", y.id)
                         } else {
                             panic!("Type not allowed")
                         }
-                    ).expect("msg");
+                    )
+                    .expect("msg");
                 } else if x.params.len() == 1 {
                     write!(
-                        sout, "{}({}, {});\n",
+                        sout,
+                        "{}({}, {});\n",
                         x.name,
-                        format!("w_{}", x.id), 
+                        format!("w_{}", x.id),
                         if let CalcNode::Text(y) = &x.params[0] {
                             format!("{}", y)
-                        } else if let CalcNode::Function(y) = &x.params[0]{
+                        } else if let CalcNode::Function(y) = &x.params[0] {
                             format!("w_{}", y.id)
                         } else {
                             panic!("Type not allowed")
                         }
-                    ).expect("msg");
+                    )
+                    .expect("msg");
                 }
-            },
+            }
             _ => {}
         };
     }
-
 }
 
 impl fmt::Display for CalcNode {
@@ -271,7 +281,7 @@ impl fmt::Display for CalcNode {
             CalcNode::Function(dt) => dt.fmt(f),
             CalcNode::SingleValue(fl) => fl.fmt(f),
             CalcNode::MultipleValue(fl) => write!(f, "Node of type MultipleValue: {:?}", fl),
-            CalcNode::NoValue => write!(f, "Node of type NoValue")
+            CalcNode::NoValue => write!(f, "Node of type NoValue"),
         }
     }
 }

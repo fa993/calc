@@ -1,9 +1,8 @@
-
 pub enum Context {
     Calculate,
     Verilog,
     VerilogNand,
-    VerilogNor
+    VerilogNor,
 }
 
 impl TryFrom<String> for Context {
@@ -15,10 +14,9 @@ impl TryFrom<String> for Context {
             _ if value == "verilog" => Ok(Context::Verilog),
             _ if value == "verilog nand" => Ok(Context::VerilogNand),
             _ if value == "verilog nor" => Ok(Context::VerilogNor),
-            _ => Err(())
+            _ => Err(()),
         }
     }
-
 }
 
 impl TryFrom<&str> for Context {
@@ -30,8 +28,7 @@ impl TryFrom<&str> for Context {
             _ if value == "verilog" => Ok(Context::Verilog),
             _ if value == "verilog nand" => Ok(Context::VerilogNand),
             _ if value == "verilog nor" => Ok(Context::VerilogNor),
-            _ => Err(())
+            _ => Err(()),
         }
     }
-
 }
