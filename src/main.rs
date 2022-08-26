@@ -3,9 +3,11 @@ use std::io;
 use unicode_segmentation::UnicodeSegmentation;
 
 mod lib;
+mod test;
 
 use lib::node::{CalcFunctionData, CalcNode, CalcOperatorType};
 use lib::funcs::*;
+use lib::context::*;
 
 fn parse_buffer(buffer: &str, next_operator: Option<CalcOperatorType>) -> CalcNode {
     let entity = buffer.parse::<f64>();
@@ -75,6 +77,45 @@ fn find_ele_in_direction<T>(
     return None;
 }
 
+fn find_fn_in_direction(
+    slice: &mut [Option<CalcNode>],
+    start: usize,
+    forward: bool,
+    occurence: usize,
+) -> Option<usize> {
+    let mut seen = 0;
+    if forward {
+        for i in start+1..slice.len() {
+            let t = &slice[i];
+            if let Some(CalcNode::Function(_)) = t {
+                seen += 1;
+                if seen == occurence {
+                    return Some(i);
+                }
+            }
+        }
+    } else {
+        for i in (0..start).rev() {
+            let t = &slice[i];
+            if let Some(CalcNode::Function(_)) = t {
+                seen += 1;
+                if seen == occurence {
+                    return Some(i);
+                }
+            }
+        }
+    }
+    return None;
+}
+
+fn find_first_fn_in_direction(
+    slice: &mut [Option<CalcNode>],
+    start: usize,
+    forward: bool,
+) -> Option<usize> {
+    return find_fn_in_direction(slice, start, forward, 1);
+}
+
 fn apply_precedence_binary(slice: &mut [Option<CalcNode>], operator: CalcOperatorType) {
     let name = operator.get_function_bindings().unwrap();
     for i in 0..slice.len() {
@@ -87,14 +128,14 @@ fn apply_precedence_binary(slice: &mut [Option<CalcNode>], operator: CalcOperato
 
                 if let Some(x) = item_index {
                     let item = (&mut slice[x]).take().unwrap();
-                    y.params.push(item);
+                    y.push_param(item);
                 }
 
                 let item_index = find_first_ele_in_direction(slice, i, true);
 
                 if let Some(x) = item_index {
                     let item = (&mut slice[x]).take().unwrap();
-                    y.params.push(item);
+                    y.push_param(item);
                 }
                 slice[i] = Some(CalcNode::Function(y));
             }
@@ -105,18 +146,17 @@ fn apply_precedence_binary(slice: &mut [Option<CalcNode>], operator: CalcOperato
 
 fn apply_precedence_overall(slice: &mut [Option<CalcNode>]) -> usize {
     //first check for bracket
-    let bracket_index = find_open_bracket(slice);
 
     //first resolve assignments
 
     //now check for function args
     //now the func should be in the form of #, #, #,
 
-    if let Some(br) = bracket_index {
-        let possible_func = find_first_ele_in_direction(slice, br, false);
+    while let Some(br) = find_open_bracket(slice) {
+        let possible_func = find_first_fn_in_direction(slice, br, false);
+
 
         let bracket_close = apply_precedence_overall(&mut slice[br + 1..]) + br + 1;
-
         let mut new_params = vec![];
 
         if possible_func.is_some() {
@@ -139,7 +179,6 @@ fn apply_precedence_overall(slice: &mut [Option<CalcNode>]) -> usize {
                 y.params = new_params;
             }
         }
-
         slice[br].take();
         if bracket_close < slice.len() {
             slice[bracket_close].take();
@@ -148,53 +187,104 @@ fn apply_precedence_overall(slice: &mut [Option<CalcNode>]) -> usize {
 
     let bracket_index = find_close_bracket(slice).unwrap_or(slice.len());
 
+    // apply_precedence_binary(&mut slice[..bracket_index], CalcOperatorType::Tild);
     apply_precedence_binary(&mut slice[..bracket_index], CalcOperatorType::Slash);
     apply_precedence_binary(&mut slice[..bracket_index], CalcOperatorType::Asterisk);
+    apply_precedence_binary(&mut slice[..bracket_index], CalcOperatorType::Modulus);
     apply_precedence_binary(&mut slice[..bracket_index], CalcOperatorType::Minus);
     apply_precedence_binary(&mut slice[..bracket_index], CalcOperatorType::Plus);
+    apply_precedence_binary(&mut slice[..bracket_index], CalcOperatorType::Ampersand);
+    apply_precedence_binary(&mut slice[..bracket_index], CalcOperatorType::Pipe);
+
 
     return bracket_index;
 }
 
 fn main() {
-    let lkps = assemble_map();
+    let mut lkps = assemble_map_calc();
     let mut buffer = String::new();
-    io::stdin()
-        .read_line(&mut buffer)
-        .expect("Something went wrong");
-    let x = UnicodeSegmentation::graphemes(&buffer[..], true).collect::<Vec<&str>>();
     let mut buffer_part_two = String::new();
     let mut nodes = Vec::<Option<CalcNode>>::new();
-    for y in x {
-        let possible_op = CalcOperatorType::try_from(y);
-        if possible_op.is_ok() {
-            //look at buffer now
-            let opera = possible_op.unwrap();
-            if !buffer_part_two.is_empty() {
-                nodes.push(Some(parse_buffer(&buffer_part_two, Some(opera))));
-                buffer_part_two.clear();
+    let mut ctx = Context::Calculate;
+    loop { 
+        io::stdin()
+            .read_line(&mut buffer)
+            .expect("Something went wrong");
+
+        if buffer.starts_with("context") {
+            //treat as context command 
+            // let ctx: Context = buffer["context ".len()..].try_into().expect("No associated context found");
+            let mode = &buffer["context ".len()..buffer.len() - 1];
+            if mode.eq("verilog") {
+                lkps = assemble_map_veri();
+                ctx = Context::Verilog;
+            } else if mode.eq("verilog nand") {
+                lkps = assemble_map_veri_nand();
+                ctx = Context::VerilogNand;
+            } else if mode.eq("verilog nor") {
+                lkps = assemble_map_veri_nor();
+                ctx = Context::VerilogNor;
+            } else if mode.eq("calculate") {
+                lkps = assemble_map_calc();
+                ctx = Context::Calculate;
+            } else {
+                panic!("No associated context found");
             }
-            //then pass the operator
-            nodes.push(Some(CalcNode::Operator(opera)));
-        } else if !y.trim().is_empty() {
-            buffer_part_two.push_str(y.trim());
+            
+            println!("Parse Complete");
+            buffer.clear();
+            buffer_part_two.clear();
+            nodes.clear();
+            continue;
         }
-    }
-    if !buffer_part_two.is_empty() {
-        nodes.push(Some(parse_buffer(&buffer_part_two, None)));
+
+        let x = UnicodeSegmentation::graphemes(&buffer[..], true).collect::<Vec<&str>>();
+        
+        for y in x {
+            let possible_op = CalcOperatorType::try_from(y);
+            if possible_op.is_ok() {
+                //look at buffer now
+                let opera = possible_op.unwrap();
+                if !buffer_part_two.is_empty() {
+                    nodes.push(Some(parse_buffer(&buffer_part_two, Some(opera))));
+                    buffer_part_two.clear();
+                }
+                //then pass the operator
+                nodes.push(Some(CalcNode::Operator(opera)));
+            } else if !y.trim().is_empty() {
+                buffer_part_two.push_str(y.trim());
+            }
+        }
+        if !buffer_part_two.is_empty() {
+            nodes.push(Some(parse_buffer(&buffer_part_two, None)));
+            buffer_part_two.clear();
+        }
+        apply_precedence_overall(&mut nodes);
+        // apply_precedence_rules(&mut nodes, CalcOperatorType::Plus, CalcOperatorType::Minus, "add", "minus");
+
+        for t in &nodes {
+            if let Some(i) = t {
+                match ctx {
+                    Context::Calculate => {
+                        let ans = i.eval(&lkps);
+                        // println!("{:?}", ans);
+                        // println!("{}", ans);
+                        println!("{:#}", ans);
+                    },
+                    Context::Verilog | Context::VerilogNand | Context::VerilogNor => {
+                        // println!("{:?}", i);
+                        let ans = i.eval(&lkps);
+                        // println!("{:#?}", ans);
+                        println!("{}", ans.to_verilog());
+                    }
+                };
+                break;
+            }
+        }
+        
+        println!("Parse Complete");
+        buffer.clear();
         buffer_part_two.clear();
+        nodes.clear();
     }
-    println!("{:?}", nodes);
-    apply_precedence_overall(&mut nodes);
-    // apply_precedence_rules(&mut nodes, CalcOperatorType::Plus, CalcOperatorType::Minus, "add", "minus");
-    println!("{:?}", nodes);
-
-    for t in nodes {
-        if let Some(i) = t {
-            println!("{:?}", i.eval(&lkps));
-            break;
-        }
-    }
-
-    println!("Parse Complete");
 }
