@@ -287,7 +287,7 @@ fn main() {
                     Context::Calculate => {
                         let ans = i.eval(&lkps);
                         // println!("{:?}", ans);
-                        // println!("{}", ans);
+                        println!("{}", ans);
                         println!("{:#}", ans);
                     }
                     Context::Verilog | Context::VerilogNand | Context::VerilogNor => {

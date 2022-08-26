@@ -4,6 +4,8 @@ use std::fmt::{self, Write};
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
+use anyhow::anyhow;
+
 use crate::lib::EvalFunction;
 
 #[derive(Debug)]
@@ -11,6 +13,8 @@ pub enum CalcNodeError {
     OperatorConversionError(String),
     OperatorMethodBindingError(CalcOperatorType),
 }
+
+impl std::error::Error for CalcNodeError {}
 
 impl fmt::Display for CalcNodeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -38,29 +42,36 @@ impl fmt::Display for CalcFunctionData {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if f.alternate() && self.operator.is_some() {
             if self.brackets {
-                "(".fmt(f).expect("Couldn't display");
+                "(".fmt(f)?;
             }
             self.visit(&mut |fre, is_last| {
-                fre.fmt(f).expect("Couldn't display");
-                if !is_last {
-                    self.operator
-                        .expect("No operator")
-                        .fmt(f)
-                        .expect("Operator couldn't be serialized");
+                let opr = self.operator.ok_or_else(|| anyhow!("No Operator"))?;
+                if !opr.is_postfix()? {
+                    opr.fmt(f)?;
+                    fre.fmt(f)?;
+                } else if !is_last {
+                    fre.fmt(f)?;
+                    opr.fmt(f)?;
+                } else {
+                    fre.fmt(f)?;
                 }
-            });
+                Ok(())
+            })
+            .map_err(|_| fmt::Error {})?;
             if self.brackets {
-                ")".fmt(f).expect("Couldn't display");
-            }
+                ")".fmt(f)?;
+            };
             Ok(())
         } else {
             write!(f, "{}(", self.name).expect("Couldn't display");
             self.visit(&mut |fre, is_last| {
-                fre.fmt(f).expect("Couldn't display");
+                fre.fmt(f)?;
                 if !is_last {
-                    f.write_str(", ").expect("Couldn't display");
+                    f.write_str(", ")?;
                 }
-            });
+                Ok(())
+            })
+            .map_err(|_| fmt::Error {})?;
             f.write_str(")")
         }
     }
@@ -77,11 +88,14 @@ impl CalcFunctionData {
         }
     }
 
-    fn visit(&self, visitor: &mut dyn FnMut(&CalcNode, bool)) {
+    fn visit(
+        &self,
+        visitor: &mut dyn FnMut(&CalcNode, bool) -> Result<(), anyhow::Error>,
+    ) -> Result<(), anyhow::Error> {
         for i in 0..&self.params.len() - 1 {
-            visitor(&self.params[i], false);
+            visitor(&self.params[i], false)?;
         }
-        visitor(&self.params[self.params.len() - 1], true);
+        visitor(&self.params[self.params.len() - 1], true)
     }
 
     pub fn push_param(&mut self, node: CalcNode) {
@@ -117,6 +131,21 @@ impl CalcOperatorType {
             CalcOperatorType::Ampersand => Ok("and"),
             CalcOperatorType::Pipe => Ok("or"),
             CalcOperatorType::Tild => Ok("not"),
+            _ => Err(CalcNodeError::OperatorMethodBindingError(*self)),
+        }
+    }
+
+    pub fn is_postfix(&self) -> Result<bool, CalcNodeError> {
+        match self {
+            CalcOperatorType::Plus
+            | CalcOperatorType::Minus
+            | CalcOperatorType::Asterisk
+            | CalcOperatorType::Slash
+            | CalcOperatorType::Caret
+            | CalcOperatorType::Modulus
+            | CalcOperatorType::Ampersand
+            | CalcOperatorType::Pipe => Ok(true),
+            CalcOperatorType::Tild => Ok(false),
             _ => Err(CalcNodeError::OperatorMethodBindingError(*self)),
         }
     }
@@ -209,7 +238,8 @@ impl CalcNode {
     pub fn to_verilog(&self) -> String {
         let mut t = String::new();
         let mut seen = HashSet::new();
-        self.to_verilog__(&mut t, &mut seen);
+        let mut infos = HashMap::new();
+        self.to_verilog__(&mut t, &mut seen, &mut infos);
 
         print!("wire ");
         for t in seen {
@@ -220,10 +250,17 @@ impl CalcNode {
         return t;
     }
 
-    fn to_verilog__(&self, sout: &mut String, seen: &mut HashSet<usize>) {
+    fn to_verilog__(
+        &self,
+        sout: &mut String,
+        seen: &mut HashSet<usize>,
+        info: &mut HashMap<usize, CalcFunctionData>,
+    ) {
         match self {
             CalcNode::Function(x) => {
-                x.params.iter().for_each(|y| y.to_verilog__(sout, seen));
+                x.params
+                    .iter()
+                    .for_each(|y| y.to_verilog__(sout, seen, info));
 
                 if !seen.insert(x.id) {
                     return;
