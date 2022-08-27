@@ -1,9 +1,11 @@
+#[allow(unused_imports)]
 use crate::{
     eval,
     lib::{context::Context, funcs::assemble_map_calc, node::CalcNode},
 };
 
 #[test]
+#[cfg(test)]
 pub fn one() {
     let mut lkps = assemble_map_calc();
     let mut buffer = "2 + 11 * 4".to_string();
@@ -23,6 +25,7 @@ pub fn one() {
 }
 
 #[test]
+#[cfg(test)]
 pub fn two() {
     let mut lkps = assemble_map_calc();
     let mut buffer = "(2 + 11) * 4".to_string();
