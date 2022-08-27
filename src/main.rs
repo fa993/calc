@@ -1,3 +1,5 @@
+use lib::EvalFunction;
+use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::io;
 use unicode_segmentation::UnicodeSegmentation;
@@ -219,6 +221,85 @@ fn apply_precedence_overall(slice: &mut [Option<CalcNode>]) -> usize {
     return bracket_index;
 }
 
+fn eval(
+    buffer: &mut String,
+    buffer_part_two: &mut String,
+    nodes: &mut Vec<Option<CalcNode>>,
+    lkps: &mut HashMap<String, EvalFunction>,
+    ctx: &mut Context,
+) -> CalcNode {
+    if buffer.starts_with("context") {
+        //treat as context command
+        // let ctx: Context = buffer["context ".len()..].try_into().expect("No associated context found");
+        let mode = &buffer["context ".len()..buffer.len() - 1];
+        if mode.eq("verilog") {
+            *lkps = assemble_map_veri();
+            *ctx = Context::Verilog;
+        } else if mode.eq("verilog nand") {
+            *lkps = assemble_map_veri_nand();
+            *ctx = Context::VerilogNand;
+        } else if mode.eq("verilog nor") {
+            *lkps = assemble_map_veri_nor();
+            *ctx = Context::VerilogNor;
+        } else if mode.eq("calculate") {
+            *lkps = assemble_map_calc();
+            *ctx = Context::Calculate;
+        } else {
+            panic!("No associated context found");
+        }
+
+        println!("Parse Complete");
+        return CalcNode::NoValue;
+    }
+
+    let x = UnicodeSegmentation::graphemes(&buffer[..], true).collect::<Vec<&str>>();
+
+    for y in x {
+        let possible_op = CalcOperatorType::try_from(y);
+        if possible_op.is_ok() {
+            //look at buffer now
+            let opera = possible_op.unwrap();
+            if !buffer_part_two.is_empty() {
+                nodes.push(Some(parse_buffer(&buffer_part_two, Some(opera))));
+                buffer_part_two.clear();
+            }
+            //then pass the operator
+            nodes.push(Some(CalcNode::Operator(opera)));
+        } else if !y.trim().is_empty() {
+            buffer_part_two.push_str(y.trim());
+        }
+    }
+    if !buffer_part_two.is_empty() {
+        nodes.push(Some(parse_buffer(&buffer_part_two, None)));
+        buffer_part_two.clear();
+    }
+    apply_precedence_overall(nodes);
+    // apply_precedence_rules(&mut nodes, CalcOperatorType::Plus, CalcOperatorType::Minus, "add", "minus");
+
+    for t in nodes {
+        if let Some(i) = t {
+            println!("Parse Complete");
+            return i.eval(lkps);
+        }
+    }
+    return CalcNode::NoValue;
+}
+
+fn print_result(ans: &CalcNode, ctx: &Context) {
+    match ctx {
+        Context::Calculate => {
+            // println!("{:?}", ans);
+            // println!("{}", ans);
+            println!("{:#}", ans);
+        }
+        Context::Verilog | Context::VerilogNand | Context::VerilogNor => {
+            // println!("{:?}", i);
+            // println!("{:#?}", ans);
+            println!("{}", ans.to_verilog());
+        }
+    };
+}
+
 fn main() {
     let mut lkps = assemble_map_calc();
     let mut buffer = String::new();
@@ -230,78 +311,16 @@ fn main() {
             .read_line(&mut buffer)
             .expect("Something went wrong");
 
-        if buffer.starts_with("context") {
-            //treat as context command
-            // let ctx: Context = buffer["context ".len()..].try_into().expect("No associated context found");
-            let mode = &buffer["context ".len()..buffer.len() - 1];
-            if mode.eq("verilog") {
-                lkps = assemble_map_veri();
-                ctx = Context::Verilog;
-            } else if mode.eq("verilog nand") {
-                lkps = assemble_map_veri_nand();
-                ctx = Context::VerilogNand;
-            } else if mode.eq("verilog nor") {
-                lkps = assemble_map_veri_nor();
-                ctx = Context::VerilogNor;
-            } else if mode.eq("calculate") {
-                lkps = assemble_map_calc();
-                ctx = Context::Calculate;
-            } else {
-                panic!("No associated context found");
-            }
+        let ans = eval(
+            &mut buffer,
+            &mut buffer_part_two,
+            &mut nodes,
+            &mut lkps,
+            &mut ctx,
+        );
 
-            println!("Parse Complete");
-            buffer.clear();
-            buffer_part_two.clear();
-            nodes.clear();
-            continue;
-        }
+        print_result(&ans, &ctx);
 
-        let x = UnicodeSegmentation::graphemes(&buffer[..], true).collect::<Vec<&str>>();
-
-        for y in x {
-            let possible_op = CalcOperatorType::try_from(y);
-            if possible_op.is_ok() {
-                //look at buffer now
-                let opera = possible_op.unwrap();
-                if !buffer_part_two.is_empty() {
-                    nodes.push(Some(parse_buffer(&buffer_part_two, Some(opera))));
-                    buffer_part_two.clear();
-                }
-                //then pass the operator
-                nodes.push(Some(CalcNode::Operator(opera)));
-            } else if !y.trim().is_empty() {
-                buffer_part_two.push_str(y.trim());
-            }
-        }
-        if !buffer_part_two.is_empty() {
-            nodes.push(Some(parse_buffer(&buffer_part_two, None)));
-            buffer_part_two.clear();
-        }
-        apply_precedence_overall(&mut nodes);
-        // apply_precedence_rules(&mut nodes, CalcOperatorType::Plus, CalcOperatorType::Minus, "add", "minus");
-
-        for t in &nodes {
-            if let Some(i) = t {
-                match ctx {
-                    Context::Calculate => {
-                        let ans = i.eval(&lkps);
-                        // println!("{:?}", ans);
-                        println!("{}", ans);
-                        println!("{:#}", ans);
-                    }
-                    Context::Verilog | Context::VerilogNand | Context::VerilogNor => {
-                        // println!("{:?}", i);
-                        let ans = i.eval(&lkps);
-                        // println!("{:#?}", ans);
-                        println!("{}", ans.to_verilog());
-                    }
-                };
-                break;
-            }
-        }
-
-        println!("Parse Complete");
         buffer.clear();
         buffer_part_two.clear();
         nodes.clear();

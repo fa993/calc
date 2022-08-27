@@ -242,10 +242,14 @@ impl CalcNode {
         self.to_verilog__(&mut t, &mut seen, &mut infos);
 
         print!("wire ");
-        for t in seen {
-            print!("w_{}, ", t);
+        for (pos, t) in seen.iter().enumerate() {
+            print!("w_{}", t);
+            if pos != seen.len() - 1 {
+                print!(", ");
+            } else {
+                println!(";");
+            }
         }
-        println!("");
 
         return t;
     }
