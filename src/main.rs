@@ -1,5 +1,4 @@
-use lib::EvalFunction;
-use std::collections::HashMap;
+use lib::node::CalcUserFunctionData;
 use std::convert::TryFrom;
 use std::io;
 use unicode_segmentation::UnicodeSegmentation;
@@ -8,7 +7,6 @@ mod lib;
 mod test;
 
 use lib::context::*;
-use lib::funcs::*;
 use lib::node::{CalcFunctionData, CalcNode, CalcOperatorType};
 
 fn parse_buffer(buffer: &str, next_operator: Option<CalcOperatorType>) -> CalcNode {
@@ -118,6 +116,39 @@ fn find_first_fn_in_direction(
     return find_fn_in_direction(slice, start, forward, 1);
 }
 
+fn apply_equals(slice: &mut [Option<CalcNode>]) {
+    for i in 0..slice.len() {
+        if let Some(CalcNode::Operator(CalcOperatorType::Equals)) = slice[i] {
+            let body = find_first_ele_in_direction(slice, i, true);
+            let def = find_first_ele_in_direction(slice, i, false);
+
+            if body.is_some() && def.is_some() {
+                let sd = body.expect("not possible");
+                let sf = def.expect("not possible");
+                let res = match slice[sf].as_ref().expect("not possible") {
+                    CalcNode::Text(x) => CalcNode::UserFunction(CalcUserFunctionData {
+                        name: x.to_string(),
+                        id: 0,
+                        params: Vec::new(),
+                        eval_tree: Box::new(slice[sd].take().unwrap()),
+                    }),
+                    CalcNode::Function(x) => CalcNode::UserFunction(CalcUserFunctionData {
+                        name: x.name.to_string(),
+                        id: 0,
+                        params: x.params.iter().map(|f| f.to_string()).collect(),
+                        eval_tree: Box::new(slice[sd].take().unwrap()),
+                    }),
+                    _ => {
+                        panic!("Mismatched ")
+                    }
+                };
+                slice[sf] = Some(res);
+                slice[i].take();
+            }
+        }
+    }
+}
+
 fn apply_precedence_unary(slice: &mut [Option<CalcNode>], operator: CalcOperatorType) {
     let name = operator.get_function_bindings().unwrap();
     for i in 0..slice.len() {
@@ -218,6 +249,8 @@ fn apply_precedence_overall(slice: &mut [Option<CalcNode>]) -> usize {
     apply_precedence_binary(&mut slice[..bracket_index], CalcOperatorType::Ampersand);
     apply_precedence_binary(&mut slice[..bracket_index], CalcOperatorType::Pipe);
 
+    apply_equals(&mut slice[..bracket_index]);
+
     return bracket_index;
 }
 
@@ -225,29 +258,14 @@ fn eval(
     buffer: &mut String,
     buffer_part_two: &mut String,
     nodes: &mut Vec<Option<CalcNode>>,
-    lkps: &mut HashMap<String, EvalFunction>,
-    ctx: &mut Context,
+    ctx: &mut ContextManager,
 ) -> CalcNode {
     if buffer.starts_with("context") {
         //treat as context command
         // let ctx: Context = buffer["context ".len()..].try_into().expect("No associated context found");
         let mode = &buffer["context ".len()..buffer.len() - 1];
-        if mode.eq("verilog") {
-            *lkps = assemble_map_veri();
-            *ctx = Context::Verilog;
-        } else if mode.eq("verilog nand") {
-            *lkps = assemble_map_veri_nand();
-            *ctx = Context::VerilogNand;
-        } else if mode.eq("verilog nor") {
-            *lkps = assemble_map_veri_nor();
-            *ctx = Context::VerilogNor;
-        } else if mode.eq("calculate") {
-            *lkps = assemble_map_calc();
-            *ctx = Context::Calculate;
-        } else {
-            panic!("No associated context found");
-        }
-
+        let c_type: ContextType = mode.try_into().expect("No Associated Context found");
+        ctx.push_stack_frame(c_type);
         println!("Parse Complete");
         return CalcNode::NoValue;
     }
@@ -276,50 +294,31 @@ fn eval(
     apply_precedence_overall(nodes);
     // apply_precedence_rules(&mut nodes, CalcOperatorType::Plus, CalcOperatorType::Minus, "add", "minus");
 
+    println!("{:?}", nodes);
+
     for t in nodes {
         if let Some(i) = t {
             println!("Parse Complete");
-            return i.eval(lkps);
+            return ctx.eval(i);
         }
     }
     return CalcNode::NoValue;
 }
 
-fn print_result(ans: &CalcNode, ctx: &Context) {
-    match ctx {
-        Context::Calculate => {
-            // println!("{:?}", ans);
-            // println!("{}", ans);
-            println!("{:#}", ans);
-        }
-        Context::Verilog | Context::VerilogNand | Context::VerilogNor => {
-            // println!("{:?}", i);
-            // println!("{:#?}", ans);
-            println!("{}", ans.to_verilog());
-        }
-    };
-}
-
 fn main() {
-    let mut lkps = assemble_map_calc();
     let mut buffer = String::new();
     let mut buffer_part_two = String::new();
     let mut nodes = Vec::<Option<CalcNode>>::new();
-    let mut ctx = Context::Calculate;
+    let mut ctxs = ContextManager::new();
+    ctxs.push_stack_frame(ContextType::Calculate);
     loop {
         io::stdin()
             .read_line(&mut buffer)
             .expect("Something went wrong");
 
-        let ans = eval(
-            &mut buffer,
-            &mut buffer_part_two,
-            &mut nodes,
-            &mut lkps,
-            &mut ctx,
-        );
+        let ans = eval(&mut buffer, &mut buffer_part_two, &mut nodes, &mut ctxs);
 
-        print_result(&ans, &ctx);
+        ctxs.print_result(&ans);
 
         buffer.clear();
         buffer_part_two.clear();
