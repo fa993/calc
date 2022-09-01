@@ -200,11 +200,11 @@ impl ContextManager {
     }
 
     pub fn get_top(&self) -> &Context {
-        self.contexts.first().unwrap()
+        self.contexts.last().unwrap()
     }
 
     pub fn get_top_mut(&mut self) -> &mut Context {
-        self.contexts.first_mut().unwrap()
+        self.contexts.last_mut().unwrap()
     }
 }
 
