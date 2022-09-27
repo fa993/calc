@@ -241,6 +241,7 @@ fn apply_precedence_overall(slice: &mut [Option<CalcNode>]) -> usize {
     let bracket_index = find_close_bracket(slice).unwrap_or(slice.len());
 
     apply_precedence_unary(&mut slice[..bracket_index], CalcOperatorType::Tild);
+    apply_precedence_binary(&mut slice[..bracket_index], CalcOperatorType::Caret);
     apply_precedence_binary(&mut slice[..bracket_index], CalcOperatorType::Slash);
     apply_precedence_binary(&mut slice[..bracket_index], CalcOperatorType::Asterisk);
     apply_precedence_binary(&mut slice[..bracket_index], CalcOperatorType::Modulus);
